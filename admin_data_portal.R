@@ -125,7 +125,7 @@ AQ_AVAILABLE <- tryCatch({ source("admin_quality_checks.R", local = FALSE); TRUE
 geo_ref <- if (AQ_AVAILABLE) aq_load_geo_reference(file.path(input_dir, "geo_reference.rds")) else NULL
 if (AQ_AVAILABLE && is.null(geo_ref)) message("input/geo_reference.rds not found: geography checks are off")
 QC_CSS_TEXT <- paste(
-  ".excel-table table.dataTable tbody td.sev-cell { color: #111111 !important; font-weight: 600; }",
+  ".excel-table table.dataTable tbody td.sev-cell { color: #333333 !important; font-weight: 500; }",
   ".qc-filters .selectize-input, .qc-filters .selectize-input input, .qc-filters .selectize-input .item { color: #222222 !important; }",
   ".qc-filters .selectize-dropdown, .qc-filters .selectize-dropdown .option { color: #222222 !important; }")
 
@@ -433,27 +433,17 @@ ui <- fluidPage(
   
   div(
     id = "who-header",
-    style = "
-      position: sticky;
-      top: 0;
-      z-index: 999;
-      background-color: #337ab7;
-      padding: 6px 14px;
-      border-bottom: 2px solid #007ab8;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.35);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    ",
-    tags$img(src = "WHO_AFRO_logo.png", style = "height:38px; width:auto;"),
+    class = "who-header-bar",
+    style = "position: sticky; top: 0; z-index: 999; padding: 8px 16px; display: flex; align-items: center; gap: 12px;",
+    tags$img(src = "WHO_AFRO_logo.png", style = "height:36px; width:auto; border-radius:6px;"),
     div(
-      style = "flex-grow: 1; text-align:center; background-color:#337ab7; padding:4px 10px;",
+      style = "flex-grow: 1; text-align:center; padding:2px 10px;",
       h3("Administrative Data Portal – Country Focal Point Interface",
-         style = "color:white; margin:0; font-weight:700; font-size:20px;"),
+         class = "who-title", style = "margin:0; font-size:19px;"),
       div("Polio Eradication Program – WHO Regional Office for Africa",
-          style = "color:#e6f4fb; margin-top:1px; font-size:11px; font-weight:300;"),
+          class = "who-sub", style = "margin-top:2px; font-size:11px;"),
       div(textOutput("last_update"),
-          style = "color:#cfe9f7; margin-top:1px; font-size:10px; font-weight:300;")
+          class = "who-meta", style = "margin-top:1px; font-size:10px;")
     )
   ),
   
@@ -474,6 +464,10 @@ server <- function(input, output, session) {
     if (isTRUE(input$dark_mode)) {
       tags$style(HTML("
         body { background-color: #181a1f; color: #e5e5e5; }
+        .who-header-bar { background-color: #20252d; border-bottom: 1px solid #2f3541; box-shadow: 0 1px 6px rgba(0,0,0,0.3); }
+        .who-title { color: #e8eef5; font-weight: 600; }
+        .who-sub { color: #aab4c0; }
+        .who-meta { color: #8793a1; }
         .well, .panel, .panel-body, .panel-default { background-color: #252a33 !important; border-color: #3a3f4b !important; color: #e5e5e5 !important; }
         .form-control, .selectize-input, .input-group-addon { background-color: #2b3039; border-color: #3a3f4b; color: #e5e5e5; }
         .form-control:focus, .selectize-input.focus { border-color: #009FE3; box-shadow: 0 0 0 1px #009FE3; }
@@ -504,34 +498,79 @@ server <- function(input, output, session) {
       "))
     } else {
       tags$style(HTML("
-        body { background-color: #f4f6f9; color: #222222; }
-        .well, .panel, .panel-body, .panel-default { background-color: #ffffff !important; border-color: #d0d7e2 !important; color: #222222 !important; }
-        .form-control, .selectize-input, .input-group-addon { background-color: #ffffff; border-color: #ced4da; color: #222222; }
-        .form-control:focus, .selectize-input.focus { border-color: #009FE3; box-shadow: 0 0 0 1px #009FE3; }
-        .nav-tabs > li > a { background-color: #e9edf5; color: #333333; border-color: #d0d7e2; }
-        .nav-tabs > li.active > a, .nav-tabs > li.active > a:focus, .nav-tabs > li.active > a:hover { background-color: #ffffff; color: #000000; border-color: #009FE3; }
-        .tab-content { background-color: #f4f6f9; border-top: none; }
+        body { background-color: #f7f9fc; color: #3a4757; }
+        h4, h5 { color: #3a5878; font-weight: 500; }
 
-        .excel-panel { background-color: #f8fbff; border: 1px solid #c5d5ea; border-radius: 6px; padding: 10px 10px 5px 10px; margin-top: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .excel-title { font-weight: 600; color: #2f5597; margin-bottom: 5px; }
-        .excel-subtitle { font-size: 0.9em; color: #555555; margin-bottom: 8px; }
+        /* header */
+        .who-header-bar { background-color: #f1f6fb; border-bottom: 1px solid #e1e9f2; box-shadow: 0 1px 6px rgba(40,70,110,0.06); }
+        .who-title { color: #2f5278; font-weight: 600; }
+        .who-sub { color: #6b7d91; font-weight: 400; }
+        .who-meta { color: #8a99ab; font-weight: 400; }
 
-        /* ---- Excel-like DataTable (LIGHT) ---- */
-        .excel-table table.dataTable { border-collapse: collapse !important; }
-        .excel-table table.dataTable thead th { background-color: #d9ead3 !important; color: #000000 !important; font-weight: 600; border-bottom: 1px solid #9bbb59 !important; }
-        .excel-table table.dataTable tbody td { border-right: 1px solid #e0e0e0 !important; border-bottom: 1px solid #e0e0e0 !important; }
+        /* panels and inputs */
+        .well, .panel, .panel-body, .panel-default { background-color: #ffffff !important; border-color: #e6ebf2 !important; color: #3a4757 !important; border-radius: 10px; box-shadow: 0 1px 4px rgba(40,70,110,0.04); }
+        .form-control, .selectize-input, .input-group-addon { background-color: #ffffff; border: 1px solid #dfe6ee; border-radius: 8px; color: #3a4757; box-shadow: none; }
+        .form-control:focus, .selectize-input.focus { border-color: #a9c8e6; box-shadow: 0 0 0 3px rgba(120,170,220,0.18); }
+        label, .control-label { font-weight: 500; color: #51627a; }
+
+        /* tabs */
+        .nav-tabs { border-bottom: 1px solid #e3eaf2; }
+        .nav-tabs > li > a { background-color: transparent; color: #6b7d91; border: 1px solid transparent; border-radius: 8px 8px 0 0; margin-right: 3px; }
+        .nav-tabs > li > a:hover { background-color: #eef3f9; border-color: transparent; color: #3a5878; }
+        .nav-tabs > li.active > a, .nav-tabs > li.active > a:focus, .nav-tabs > li.active > a:hover { background-color: #ffffff; color: #2f5278; font-weight: 500; border: 1px solid #e3eaf2; border-bottom-color: #ffffff; }
+        .tab-content { background-color: #f7f9fc; border-top: none; }
+
+        /* buttons: pale fills, no heavy colour */
+        .btn { border-radius: 8px; font-weight: 400; box-shadow: none !important; text-shadow: none; }
+        .btn-default { background-color: #ffffff; border: 1px solid #dfe6ee; color: #47596e; }
+        .btn-default:hover, .btn-default:focus { background-color: #f3f7fb; border-color: #d3deea; color: #2f5278; }
+        .btn-primary { background-color: #e4eefa !important; border: 1px solid #d0e1f3 !important; color: #2b5a8a !important; }
+        .btn-primary:hover, .btn-primary:focus, .btn-primary:active { background-color: #d7e7f8 !important; border-color: #c2d9ef !important; color: #244f7c !important; }
+        .btn-warning { background-color: #fdf2de !important; border: 1px solid #f5e3c0 !important; color: #86621f !important; }
+        .btn-warning:hover, .btn-warning:focus { background-color: #fbe9c8 !important; }
+        .btn-danger { background-color: #fbe9e9 !important; border: 1px solid #f2d5d5 !important; color: #96464a !important; }
+        .btn-danger:hover, .btn-danger:focus { background-color: #f7dcdc !important; }
+        .btn-success { background-color: #e5f4ea !important; border: 1px solid #cfe8d8 !important; color: #2f6b45 !important; }
+        .btn-success:hover, .btn-success:focus { background-color: #d8eee0 !important; }
+
+        /* messages */
+        .alert { border-radius: 8px; border-width: 1px; }
+        .alert-info { background-color: #eef5fc; border-color: #dbe8f5; color: #3b5b7d; }
+        .alert-warning { background-color: #fdf6e6; border-color: #f5e8c8; color: #7d6226; }
+        .alert-success { background-color: #eef7f1; border-color: #d9ebdf; color: #2f6045; }
+        .alert-danger { background-color: #fcefef; border-color: #f2dada; color: #8a4448; }
+        .label { font-weight: 500; border-radius: 6px; }
+        .label-danger { background-color: #f3c9ca; color: #7a3438; }
+        .label-warning { background-color: #f8e3b5; color: #6e5217; }
+        .label-info { background-color: #cfe6f0; color: #2f5668; }
+        .table > thead > tr > th { font-weight: 500; color: #4a5b6f; background-color: #f1f5fa; border-bottom: 1px solid #e3eaf2; }
+        .table-bordered, .table-bordered > thead > tr > th, .table-bordered > tbody > tr > td { border-color: #ebf0f5; }
+
+        .excel-panel { background-color: #ffffff; border: 1px solid #e6ebf2; border-radius: 10px; padding: 12px 14px 8px 14px; margin-top: 10px; box-shadow: 0 1px 4px rgba(40,70,110,0.04); }
+        .excel-title { font-weight: 500; font-size: 1.1em; color: #3a5878; margin-bottom: 5px; }
+        .excel-subtitle { font-size: 0.9em; color: #6b7d91; margin-bottom: 8px; }
+
+        /* ---- DataTable (LIGHT, soft) ---- */
+        .excel-table table.dataTable { border-collapse: collapse !important; border-bottom: 1px solid #e3eaf2 !important; }
+        .excel-table table.dataTable thead th { background-color: #f1f5fa !important; color: #4a5b6f !important; font-weight: 500; border-bottom: 1px solid #e3eaf2 !important; }
+        .excel-table table.dataTable tbody td { border-right: none !important; border-bottom: 1px solid #eef2f6 !important; }
         .excel-table table.dataTable tbody tr:nth-child(odd) { background-color: #ffffff !important; }
-        .excel-table table.dataTable tbody tr:nth-child(even) { background-color: #f7fbff !important; }
-        .excel-table table.dataTable tbody tr:hover { background-color: #fff2cc !important; }
+        .excel-table table.dataTable tbody tr:nth-child(even) { background-color: #fafcfe !important; }
+        .excel-table table.dataTable tbody tr:hover { background-color: #f1f7fd !important; }
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #e4eefa !important; border: 1px solid #d0e1f3 !important; color: #2b5a8a !important; border-radius: 6px; }
 
         /* Row selection + cell focus (LIGHT) */
         .excel-table table.dataTable tbody tr.selected,
-        .excel-table table.dataTable tbody tr.selected:hover { background-color: #cfe2ff !important; }
-        .excel-table table.dataTable tbody tr.selected td { background-color: #cfe2ff !important; }
-        .excel-table table.dataTable tbody td:focus { outline: 2px solid #009fe3 !important; outline-offset: -2px; }
+        .excel-table table.dataTable tbody tr.selected:hover { background-color: #e5eefa !important; }
+        .excel-table table.dataTable tbody tr.selected td { background-color: #e5eefa !important; }
+        .excel-table table.dataTable tbody td:focus { outline: 2px solid #a9c8e6 !important; outline-offset: -2px; }
 
-        .sidebarPanel h4 { color: #222222; }
-        .help-block, .login-subtitle { color: #666666; }
+        .excel-table table.dataTable.no-footer { border-bottom: 1px solid #e3eaf2 !important; }
+        .dt-button, button.dt-button { border-radius: 8px !important; background: #ffffff !important; border: 1px solid #dfe6ee !important; color: #47596e !important; box-shadow: none !important; background-image: none !important; }
+        .dt-button:hover, button.dt-button:hover { background: #f3f7fb !important; }
+
+        .sidebarPanel h4 { color: #3a5878; }
+        .help-block, .login-subtitle { color: #7a8a9c; }
       "))
     }
   })
@@ -1344,7 +1383,7 @@ server <- function(input, output, session) {
           if (identical(where, "upload")) "your Excel file." else "the manual entry grid."),
         tags$style(HTML(QC_CSS_TEXT)),
         div(class = "excel-table", DTOutput("gate_table")),
-        footer = tagList(downloadButton("gate_dl", "Download issue list (Excel)"), modalButton("Close"))
+        footer = tagList(downloadButton("gate_dl", "Download issue list (Excel)", icon = NULL), modalButton("Close"))
       ))
       return(FALSE)
     }
@@ -1364,7 +1403,7 @@ server <- function(input, output, session) {
     datatable(d, rownames = FALSE, options = list(pageLength = 8, scrollX = TRUE,
                                                    columnDefs = list(list(className = "sev-cell", targets = 0)))) %>%
       DT::formatStyle("Severity", backgroundColor = DT::styleEqual(c("Error", "Warning", "Info"),
-                                                                     c("#f8d7da", "#fff3cd", "#d1ecf1")))
+                                                                     c("#fbeaea", "#fdf6e3", "#eaf4f8")))
   })
 
   output$gate_dl <- downloadHandler(
@@ -1394,10 +1433,10 @@ server <- function(input, output, session) {
   })
 
   qc_card <- function(label, value, colour) {
-    div(style = paste0("flex:1; min-width:150px; border-left:5px solid ", colour,
-                       "; padding:8px 12px; background:rgba(127,127,127,0.12); border-radius:4px;"),
+    div(style = paste0("flex:1; min-width:150px; border-left:4px solid ", colour,
+                       "; padding:10px 14px; background:rgba(127,127,127,0.07); border-radius:10px;"),
         div(style = "font-size:12px; opacity:0.8;", label),
-        div(style = "font-size:24px; font-weight:700;", value))
+        div(style = "font-size:24px; font-weight:500;", value))
   }
 
   output$quality_panel <- renderUI({
@@ -1417,7 +1456,7 @@ server <- function(input, output, session) {
         column(if (admin) 7 else 12, br(),
                div(style = "display:flex; gap:6px; flex-wrap:wrap;",
                    actionButton("qc_run", "Run quality check", class = "btn-primary"),
-                   downloadButton("qc_dl_report", "Download report (Excel)"),
+                   downloadButton("qc_dl_report", "Download report (Excel)", icon = NULL),
                    if (admin) actionButton("qc_apply_fix", "Apply suggested province fixes", class = "btn-warning")))
       ),
       br(),
@@ -1454,30 +1493,17 @@ server <- function(input, output, session) {
   })
 
   # small summary tables as plain HTML tables (severity shown as a coloured label)
-  qc_html_table <- function(df, sev_col = NULL) {
-    head <- tags$thead(tags$tr(lapply(names(df), tags$th)))
-    rows <- lapply(seq_len(nrow(df)), function(i) {
-      tags$tr(lapply(names(df), function(nm) {
-        v <- df[[nm]][i]
-        if (!is.null(sev_col) && identical(nm, sev_col)) {
-          tags$td(tags$span(class = paste0("label label-", switch(as.character(v), Error = "danger", Warning = "warning", "info")), v))
-        } else tags$td(if (is.numeric(v)) format(v, big.mark = ",") else as.character(v))
-      }))
-    })
-    div(style = "overflow-x:auto;", tags$table(class = "table table-condensed table-bordered", head, tags$tbody(rows)))
-  }
-  
   output$qc_summary <- renderUI({
     res <- quality_res()
     if (is.null(res)) return(div(class = "alert alert-info", "Click 'Run quality check' to review the data."))
     iss <- res$issues
     n_of <- function(sv) length(unique(iss$idx[iss$severity == sv]))
     tagList(div(style = "display:flex; gap:10px; flex-wrap:wrap; margin:8px 0;",
-        qc_card("Records checked", format(res$n_rows, big.mark = ","), "#337ab7"),
-        qc_card("With errors (must fix)", format(n_of("Error"), big.mark = ","), "#d9534f"),
-        qc_card("With warnings (review)", format(n_of("Warning"), big.mark = ","), "#f0ad4e"),
-        qc_card("Information only", format(n_of("Info"), big.mark = ","), "#5bc0de"),
-        qc_card("Run", paste0(format(res$ran_at, "%H:%M"), " (", res$seconds, " s)"), "#777777")),
+        qc_card("Records checked", format(res$n_rows, big.mark = ","), "#8db4d9"),
+        qc_card("With errors (must fix)", format(n_of("Error"), big.mark = ","), "#e3a09d"),
+        qc_card("With warnings (review)", format(n_of("Warning"), big.mark = ","), "#efcb8f"),
+        qc_card("Information only", format(n_of("Info"), big.mark = ","), "#9fd0e0"),
+        qc_card(paste0("Last run (", res$seconds, " s)"), format(res$ran_at, "%H:%M"), "#b3bcc6")),
         h4("By check"),
         if (nrow(res$by_check) == 0) div(class = "alert alert-success", "No issue found.") else qc_html_table(res$by_check, sev_col = "Severity"),
         if (qc_is_admin()) tagList(h4("By country"), qc_html_table(res$by_country))
@@ -1486,7 +1512,7 @@ server <- function(input, output, session) {
 
   qc_style_sev <- function(dt, col) {
     DT::formatStyle(dt, col, backgroundColor = DT::styleEqual(c("Error", "Warning", "Info"),
-                                                              c("#f8d7da", "#fff3cd", "#d1ecf1")))
+                                                              c("#fbeaea", "#fdf6e3", "#eaf4f8")))
   }
 
   # small summary tables as plain HTML tables (severity shown as a coloured label)
@@ -1612,7 +1638,7 @@ server <- function(input, output, session) {
           width = 4, offset = 4,
           br(), br(),
           div(
-            style = "background-color:#ffffff; border-radius:8px; padding:18px; box-shadow:0 2px 6px rgba(0,0,0,0.15);",
+            style = "background-color:#ffffff; border: 1px solid #e6ebf2; border-radius:12px; padding:22px; box-shadow:0 4px 18px rgba(40,70,110,0.08);",
             h4("AFRO Admin Data Portal – Login", style = "margin-top:0;"),
             div(
               "Please enter your access token. Each country focal point has a dedicated token.",
@@ -1630,7 +1656,7 @@ server <- function(input, output, session) {
       sidebarLayout(
         sidebarPanel(
           h4("Display"),
-          checkboxInput("dark_mode", "Dark / Night mode", value = TRUE),
+          checkboxInput("dark_mode", "Dark / Night mode", value = FALSE),
           tags$hr(),
           
           h4("Session"),
@@ -1640,7 +1666,7 @@ server <- function(input, output, session) {
           
           h4("Template"),
           helpText("Download the empty template, populate it, then upload to update the repository."),
-          downloadButton("download_empty_template", "Download EMPTY Excel template"),
+          downloadButton("download_empty_template", "Download EMPTY Excel template", icon = NULL),
           tags$hr(),
           
           h4("Manual entry"),
@@ -1663,9 +1689,9 @@ server <- function(input, output, session) {
           tags$hr(),
           
           h4("Download repository"),
-          downloadButton("download_repo_xlsx", "Download Excel"),
+          downloadButton("download_repo_xlsx", "Download Excel", icon = NULL),
           br(), br(),
-          downloadButton("download_repo_rds", "Download RDS")
+          downloadButton("download_repo_rds", "Download RDS", icon = NULL)
         ),
         
         mainPanel(
@@ -1713,7 +1739,7 @@ server <- function(input, output, session) {
                     actionButton("edit_save", "Save Changes", class = "btn-success"),
                     actionButton("edit_delete", "Delete Selected", class = "btn-danger"),
                     actionButton("edit_undo", "Undo Last Change", class = "btn-warning"),
-                    downloadButton("edit_export_changes", "Export Changes Log")
+                    downloadButton("edit_export_changes", "Export Changes Log", icon = NULL)
                   )
                 )
               ),
