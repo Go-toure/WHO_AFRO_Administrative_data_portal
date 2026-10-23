@@ -10,7 +10,7 @@
 #   Rscript run_admin_quality_check.R --country=Nigeria
 #       limits the report to one country
 #   Rscript run_admin_quality_check.R --cv-ceiling=150 --pop-factor=3
-#       changes the thresholds (coverage ceiling in %, target population jump factor)
+#       changes the thresholds (coverage ceiling in %, flag target population when it is this many times higher or lower than usual)
 #   Rscript run_admin_quality_check.R --build-geo=path/to/africa_districts_simplified.rds
 #       rebuilds input/geo_reference.rds from the district shapefile (needs the sf package)
 #

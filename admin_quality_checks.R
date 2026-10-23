@@ -53,7 +53,7 @@ AQ_CHECKS <- c(
   coverage_ceiling  = "Coverage above the ceiling",
   coverage_high     = "Coverage high (verify)",
   coverage_mismatch = "Reported coverage differs from vaccinated / target",
-  target_jump       = "Target population jump between rounds",
+  target_jump       = "Target population very different from other rounds",
   coadmin_mixed     = "Co-administration reported both combined and separate",
   coadmin_combined  = "Combined co-administration record",
   coadmin_identical = "Identical figures for both vaccines",
@@ -581,7 +581,7 @@ aq_report_sheets <- function(res) {
   cfg <- res$config
   overview <- data.frame(
     Item = c("Records checked", "Records with at least one issue", "Errors (records)", "Warnings (records)", "Info (records)",
-             "Coverage ceiling", "Target population jump factor", "Run at"),
+             "Coverage ceiling", "Target population flag threshold (times higher or lower than usual)", "Run at"),
     Value = c(res$n_rows, res$n_flagged,
               length(unique(res$issues$idx[res$issues$severity == "Error"])),
               length(unique(res$issues$idx[res$issues$severity == "Warning"])),

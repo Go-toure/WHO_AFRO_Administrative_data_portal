@@ -1413,8 +1413,8 @@ server <- function(input, output, session) {
       if (is.null(geo_ref)) div(class = "alert alert-warning", "Geography reference (input/geo_reference.rds) not found: the province / country check is off."),
       fluidRow(
         if (admin) column(2, numericInput("qc_cv_ceiling", "Coverage ceiling (%)", value = 150, min = 100, max = 1000, step = 10)),
-        if (admin) column(2, numericInput("qc_pop_factor", "Target jump factor (x)", value = 3, min = 1.5, max = 100, step = 0.5)),
-        column(8, br(),
+        if (admin) column(3, numericInput("qc_pop_factor", "Flag target population if it is this many times higher or lower than usual", value = 3, min = 1.5, max = 100, step = 0.5)),
+        column(if (admin) 7 else 12, br(),
                div(style = "display:flex; gap:6px; flex-wrap:wrap;",
                    actionButton("qc_run", "Run quality check", class = "btn-primary"),
                    downloadButton("qc_dl_report", "Download report (Excel)"),
