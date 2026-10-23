@@ -118,6 +118,17 @@ template_path <- detect_template_path(input_dir)
 repo_rds_path  <- file.path(output_dir, "AFRO_admin_data_repository.rds")
 repo_xlsx_path <- file.path(output_dir, "AFRO_admin_data_repository.xlsx")
 
+# Data quality checks (admin_quality_checks.R) + geography lookup (input/geo_reference.rds).
+# If either is missing the portal still works, without the quality features.
+AQ_AVAILABLE <- tryCatch({ source("admin_quality_checks.R", local = FALSE); TRUE },
+                         error = function(e) { message("Quality checks not loaded: ", conditionMessage(e)); FALSE })
+geo_ref <- if (AQ_AVAILABLE) aq_load_geo_reference(file.path(input_dir, "geo_reference.rds")) else NULL
+if (AQ_AVAILABLE && is.null(geo_ref)) message("input/geo_reference.rds not found: geography checks are off")
+QC_CSS_TEXT <- paste(
+  ".excel-table table.dataTable tbody td.sev-cell { color: #111111 !important; font-weight: 600; }",
+  ".qc-filters .selectize-input, .qc-filters .selectize-input input, .qc-filters .selectize-input .item { color: #222222 !important; }",
+  ".qc-filters .selectize-dropdown, .qc-filters .selectize-dropdown .option { color: #222222 !important; }")
+
 # -----------------------------
 # KEY DEFINITIONS
 # -----------------------------
@@ -366,7 +377,7 @@ validate_admin_data <- function(new_df, existing_df = NULL) {
   }
   
   for (col in duplicate_key_cols) {
-    empty_count <- sum(is.na(new_df[[col]]) | new_df[[col]] == "")
+    empty_count <- sum(is.na(new_df[[col]]) | as.character(new_df[[col]]) == "", na.rm = TRUE)
     if (empty_count > 0) errors[[paste0("empty_", col)]] <- paste(col, "has", empty_count, "empty values")
   }
   
@@ -1066,6 +1077,8 @@ server <- function(input, output, session) {
     
     non_empty <- normalize_admin_dates(non_empty)
     
+    if (!quality_gate(non_empty, where = "manual")) return(NULL)
+    
     validation <- validate_admin_data(non_empty, admin_repo())
     if (length(validation) > 0) {
       if (!is.null(validation$existing_duplicates)) {
@@ -1181,6 +1194,9 @@ server <- function(input, output, session) {
       return(NULL)
     }
     
+    # quality gate: records with errors (wrong geography, missing key field ...) are not added
+    if (!quality_gate(new_data, where = "upload")) return(NULL)
+
     append_new_data(new_data, update_mode = FALSE)
     showNotification("File data appended with entry timestamps.", type = "message")
   })
@@ -1302,6 +1318,274 @@ server <- function(input, output, session) {
     content = function(file) saveRDS(repo_country(), file)
   )
   
+  # -----------------------------
+  # DATA QUALITY (the checks themselves live in admin_quality_checks.R)
+  # -----------------------------
+  quality_res <- reactiveVal(NULL)
+  gate_issues <- reactiveVal(NULL)
+
+  # Upload gate. Records with an Error are not added; everything else is added and flagged.
+  # Never blocks because of a failure of the checker itself.
+  quality_gate <- function(new_data, where = "upload") {
+    if (!AQ_AVAILABLE) return(TRUE)
+    gate <- tryCatch(aq_run_gate(new_data, admin_repo(), geo_ref),
+                     error = function(e) { message("Quality gate failed: ", conditionMessage(e)); NULL })
+    if (is.null(gate)) return(TRUE)
+    iss <- gate$issues
+    # position in the Excel file (row 1 = header) or in the manual grid
+    iss$Row <- iss$Row + if (identical(where, "upload")) 1L else 0L
+    if (gate$n_errors > 0) {
+      gate_issues(iss[iss$severity %in% c("Error", "Warning"), , drop = FALSE])
+      showModal(modalDialog(
+        title = paste0("Quality check: ", gate$n_errors, " record(s) have errors - nothing was added"),
+        size = "l", easyClose = TRUE,
+        p("Please correct the rows below and upload again. Warnings are listed too: they do not stop an upload, ",
+          "but please check them. The 'Row' column is the row number in ",
+          if (identical(where, "upload")) "your Excel file." else "the manual entry grid."),
+        tags$style(HTML(QC_CSS_TEXT)),
+        div(class = "excel-table", DTOutput("gate_table")),
+        footer = tagList(downloadButton("gate_dl", "Download issue list (Excel)"), modalButton("Close"))
+      ))
+      return(FALSE)
+    }
+    if (gate$n_warnings > 0) {
+      showNotification(
+        paste0(gate$n_warnings, " record(s) were added with warnings (for example coverage above the ceiling or a ",
+               "large change in target population). Please verify them - see the Data Quality tab."),
+        type = "warning", duration = 12)
+    }
+    TRUE
+  }
+
+  output$gate_table <- renderDT({
+    iss <- gate_issues(); req(iss)
+    d <- iss[, c("severity", "Row", "Country", "Province", "District", "check_label", "message")]
+    names(d) <- c("Severity", "Row", "Country", "Province", "District", "Check", "Details")
+    datatable(d, rownames = FALSE, options = list(pageLength = 8, scrollX = TRUE,
+                                                   columnDefs = list(list(className = "sev-cell", targets = 0)))) %>%
+      DT::formatStyle("Severity", backgroundColor = DT::styleEqual(c("Error", "Warning", "Info"),
+                                                                     c("#f8d7da", "#fff3cd", "#d1ecf1")))
+  })
+
+  output$gate_dl <- downloadHandler(
+    filename = function() paste0("upload_quality_issues_", Sys.Date(), ".xlsx"),
+    content = function(file) {
+      iss <- gate_issues(); req(iss)
+      iss <- iss[, setdiff(names(iss), c("idx", "ROW_ID"))]
+      iss$SIA_date <- as.character(iss$SIA_date)
+      writexl::write_xlsx(list(Issues = iss), file)
+    }
+  )
+
+  qc_is_admin <- reactive(isTRUE(user_role() == "admin"))
+  
+  # records the quality check looks at: everything for the admin, the user's own country otherwise
+  # (compared without regard to upper/lower case or accents: the repository holds ANGOLA, the token says Angola)
+  qc_data <- reactive({
+    df <- admin_repo()
+    if (qc_is_admin() || !"Country" %in% names(df)) return(df)
+    df[aq_country_key(df$Country) == aq_country_key(user_country()), , drop = FALSE]
+  })
+
+  qc_config <- reactive({
+    if (qc_is_admin()) {
+      aq_config(cv_ceiling = (input$qc_cv_ceiling %||% 150) / 100, pop_factor = input$qc_pop_factor %||% 3)
+    } else aq_config()
+  })
+
+  qc_card <- function(label, value, colour) {
+    div(style = paste0("flex:1; min-width:150px; border-left:5px solid ", colour,
+                       "; padding:8px 12px; background:rgba(127,127,127,0.12); border-radius:4px;"),
+        div(style = "font-size:12px; opacity:0.8;", label),
+        div(style = "font-size:24px; font-weight:700;", value))
+  }
+
+  output$quality_panel <- renderUI({
+    if (!AQ_AVAILABLE) return(div(class = "alert alert-warning", "Quality checks are not installed (admin_quality_checks.R is missing)."))
+    admin <- qc_is_admin()
+    div(
+      class = "excel-panel",
+      tags$style(HTML(QC_CSS_TEXT)),
+      div(class = "excel-title", "Data quality review"),
+      div(class = "excel-subtitle",
+          if (admin) "Checks every record in the repository: geography, coverage, target population, dates and co-administration."
+          else paste0("Checks the records of ", user_country(), ". Please correct the errors and review the warnings.")),
+      if (is.null(geo_ref)) div(class = "alert alert-warning", "Geography reference (input/geo_reference.rds) not found: the province / country check is off."),
+      fluidRow(
+        if (admin) column(2, numericInput("qc_cv_ceiling", "Coverage ceiling (%)", value = 150, min = 100, max = 1000, step = 10)),
+        if (admin) column(2, numericInput("qc_pop_factor", "Target jump factor (x)", value = 3, min = 1.5, max = 100, step = 0.5)),
+        column(8, br(),
+               div(style = "display:flex; gap:6px; flex-wrap:wrap;",
+                   actionButton("qc_run", "Run quality check", class = "btn-primary"),
+                   downloadButton("qc_dl_report", "Download report (Excel)"),
+                   if (admin) actionButton("qc_apply_fix", "Apply suggested province fixes", class = "btn-warning")))
+      ),
+      br(),
+      uiOutput("qc_summary"),
+      conditionalPanel(
+        condition = "output.qc_has_result",
+        h4("Records with issues"),
+        div(class = "qc-filters",
+            fluidRow(
+              column(3, selectInput("qc_sev", "Severity", c("All", "Error", "Warning", "Info"), selected = "All")),
+              column(5, selectInput("qc_check", "Check", c("All", unname(AQ_CHECKS)), selected = "All")),
+              if (admin) column(4, selectInput("qc_country", "Country", "All", selected = "All"))
+            )),
+        div(class = "excel-table", DTOutput("qc_issues"))
+      )
+    )
+  })
+  
+  output$qc_has_result <- reactive(!is.null(quality_res()))
+  outputOptions(output, "qc_has_result", suspendWhenHidden = FALSE)
+
+  observeEvent(input$qc_run, {
+    req(user_country(), AQ_AVAILABLE)
+    res <- NULL
+    withProgress(message = "Running quality checks...", value = 0.3, {
+      res <- tryCatch(aq_run_checks(qc_data(), geo_ref, qc_config()),
+                      error = function(e) { showNotification(paste("Quality check failed:", conditionMessage(e)), type = "error"); NULL })
+      incProgress(0.7)
+    })
+    quality_res(res)
+    if (!is.null(res) && nrow(res$issues) > 0) {
+      updateSelectInput(session, "qc_country", choices = c("All", sort(unique(res$issues$Country))))
+    }
+  })
+
+  # small summary tables as plain HTML tables (severity shown as a coloured label)
+  qc_html_table <- function(df, sev_col = NULL) {
+    head <- tags$thead(tags$tr(lapply(names(df), tags$th)))
+    rows <- lapply(seq_len(nrow(df)), function(i) {
+      tags$tr(lapply(names(df), function(nm) {
+        v <- df[[nm]][i]
+        if (!is.null(sev_col) && identical(nm, sev_col)) {
+          tags$td(tags$span(class = paste0("label label-", switch(as.character(v), Error = "danger", Warning = "warning", "info")), v))
+        } else tags$td(if (is.numeric(v)) format(v, big.mark = ",") else as.character(v))
+      }))
+    })
+    div(style = "overflow-x:auto;", tags$table(class = "table table-condensed table-bordered", head, tags$tbody(rows)))
+  }
+  
+  output$qc_summary <- renderUI({
+    res <- quality_res()
+    if (is.null(res)) return(div(class = "alert alert-info", "Click 'Run quality check' to review the data."))
+    iss <- res$issues
+    n_of <- function(sv) length(unique(iss$idx[iss$severity == sv]))
+    tagList(div(style = "display:flex; gap:10px; flex-wrap:wrap; margin:8px 0;",
+        qc_card("Records checked", format(res$n_rows, big.mark = ","), "#337ab7"),
+        qc_card("With errors (must fix)", format(n_of("Error"), big.mark = ","), "#d9534f"),
+        qc_card("With warnings (review)", format(n_of("Warning"), big.mark = ","), "#f0ad4e"),
+        qc_card("Information only", format(n_of("Info"), big.mark = ","), "#5bc0de"),
+        qc_card("Run", paste0(format(res$ran_at, "%H:%M"), " (", res$seconds, " s)"), "#777777")),
+        h4("By check"),
+        if (nrow(res$by_check) == 0) div(class = "alert alert-success", "No issue found.") else qc_html_table(res$by_check, sev_col = "Severity"),
+        if (qc_is_admin()) tagList(h4("By country"), qc_html_table(res$by_country))
+    )
+  })
+
+  qc_style_sev <- function(dt, col) {
+    DT::formatStyle(dt, col, backgroundColor = DT::styleEqual(c("Error", "Warning", "Info"),
+                                                              c("#f8d7da", "#fff3cd", "#d1ecf1")))
+  }
+
+  # small summary tables as plain HTML tables (severity shown as a coloured label)
+  qc_html_table <- function(df, sev_col = NULL) {
+    head <- tags$thead(tags$tr(lapply(names(df), tags$th)))
+    rows <- lapply(seq_len(nrow(df)), function(i) {
+      tags$tr(lapply(names(df), function(nm) {
+        v <- df[[nm]][i]
+        if (!is.null(sev_col) && identical(nm, sev_col)) {
+          tags$td(tags$span(class = paste0("label label-", switch(as.character(v), Error = "danger", Warning = "warning", "info")), v))
+        } else tags$td(if (is.numeric(v)) format(v, big.mark = ",") else as.character(v))
+      }))
+    })
+    div(style = "overflow-x:auto;", tags$table(class = "table table-condensed table-bordered", head, tags$tbody(rows)))
+  }
+  
+  qc_filtered <- reactive({
+    res <- quality_res(); req(res)
+    d <- res$issues
+    if (!is.null(input$qc_sev) && input$qc_sev != "All") d <- d[d$severity == input$qc_sev, , drop = FALSE]
+    if (!is.null(input$qc_check) && input$qc_check != "All") d <- d[d$check_label == input$qc_check, , drop = FALSE]
+    if (qc_is_admin() && !is.null(input$qc_country) && input$qc_country != "All") d <- d[d$Country == input$qc_country, , drop = FALSE]
+    d
+  })
+
+  output$qc_issues <- renderDT({
+    d <- qc_filtered()
+    d <- d[, c("severity", "Country", "Province", "District", "SIA_date", "Round", "Vaccine", "Response",
+               "check_label", "message", "current", "suggested", "ROW_ID")]
+    names(d) <- c("Severity", "Country", "Province", "District", "SIA_date", "Round", "Vaccine", "Response",
+                  "Check", "Details", "Current", "Suggested", "ROW_ID")
+    qc_style_sev(datatable(d, rownames = FALSE, filter = "top", extensions = "Buttons",
+                           options = list(pageLength = 15, scrollX = TRUE, dom = "Bfrtip", buttons = c("copy", "csv", "excel"),
+                                         columnDefs = list(list(className = "sev-cell", targets = 0)))),
+                 "Severity")
+  }, server = TRUE)
+
+  output$qc_dl_report <- downloadHandler(
+    filename = function() paste0("admin_data_quality_report_", if (qc_is_admin()) "ALL" else gsub(" ", "_", user_country()), "_", Sys.Date(), ".xlsx"),
+    content = function(file) {
+      res <- quality_res()
+      if (is.null(res)) res <- aq_run_checks(qc_data(), geo_ref, qc_config())
+      writexl::write_xlsx(aq_report_sheets(res), file)
+    }
+  )
+
+  # Admin only: replace a province that belongs to another country by the province of the same district
+  # in the geography reference. Backup first, change log written to output/quality/.
+  observeEvent(input$qc_apply_fix, {
+    req(qc_is_admin())
+    res <- quality_res()
+    cr <- if (is.null(res)) NULL else res$corrections
+    cr <- if (is.null(cr)) cr else cr[cr$certain, , drop = FALSE]
+    if (is.null(cr) || nrow(cr) == 0) {
+      showNotification("No safe province fix to apply. Run the quality check first.", type = "message")
+      return(NULL)
+    }
+    prev <- as.data.frame(table(Country = cr$Country, `Wrong province` = cr$current_province), stringsAsFactors = FALSE)
+    prev <- prev[prev$Freq > 0, , drop = FALSE]
+    names(prev)[3] <- "Records"
+    output$qc_fix_preview <- renderTable(prev)
+    showModal(modalDialog(
+      title = "Apply suggested province fixes",
+      p(paste0(nrow(cr), " record(s) have a province that belongs to another country. Each will get the province of the same ",
+               "district in the geography reference. A backup of the repository is saved first and the changes are logged in ",
+               "output/quality/. Nothing else is modified.")),
+      tableOutput("qc_fix_preview"),
+      footer = tagList(modalButton("Cancel"), actionButton("qc_confirm_fix", "Apply fixes", class = "btn-danger"))
+    ))
+  })
+
+  observeEvent(input$qc_confirm_fix, {
+    req(qc_is_admin())
+    removeModal()
+    res <- quality_res(); req(res)
+    repo <- admin_repo()
+    stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    dir.create(file.path(output_dir, "backup"), showWarnings = FALSE, recursive = TRUE)
+    dir.create(file.path(output_dir, "quality"), showWarnings = FALSE, recursive = TRUE)
+    saveRDS(repo, file.path(output_dir, "backup", paste0("AFRO_admin_data_repository_before_fix_", stamp, ".rds")))
+    fx <- aq_apply_province_fixes(repo, res$corrections)
+    if (is.null(fx$log) || nrow(fx$log) == 0) {
+      showNotification("Nothing to change.", type = "message")
+      return(NULL)
+    }
+    new_repo <- fx$data
+    pos <- match(fx$log$ROW_ID, new_repo$ROW_ID)
+    new_repo$KEY_ID[pos] <- create_unique_id_dt(new_repo[pos, , drop = FALSE])   # the key contains the province
+    save_repo(new_repo)
+    admin_repo(new_repo)
+    writexl::write_xlsx(list(Changes = fx$log), file.path(output_dir, "quality", paste0("province_fixes_", stamp, ".xlsx")))
+    n_dup <- sum(duplicated(new_repo$KEY_ID))
+    showNotification(
+      paste0(nrow(fx$log), " province value(s) corrected. Backup and change log saved in the output folder.",
+             if (n_dup > 0) paste0(" ", n_dup, " duplicate record(s) now exist - see the Manage Duplicates tab.") else ""),
+      type = "message", duration = 15)
+    quality_res(tryCatch(aq_run_checks(qc_data(), geo_ref, qc_config()), error = function(e) NULL))
+  })
+
   # -----------------------------
   # LOGIN + APP BODY
   # -----------------------------
@@ -1443,7 +1727,8 @@ server <- function(input, output, session) {
                 )
               ),
               tabPanel("Template columns", tableOutput("column_info")),
-              tabPanel("Manage Duplicates", uiOutput("duplicate_panel"))
+              tabPanel("Manage Duplicates", uiOutput("duplicate_panel")),
+              tabPanel("Data Quality", uiOutput("quality_panel"))
             )
             
             if (isTRUE(user_role() == "admin")) {
